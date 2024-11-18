@@ -1,4 +1,5 @@
 
+
 # AUTO_VI -----------------------------------------------------------------
 
 
@@ -129,6 +130,92 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
     return(p)
   }
 
+
+# plot_pair ---------------------------------------------------------------
+
+  plot_pair_ <- function(data = self$get_fitted_and_resid(),
+                         null_data = self$null_method(),
+                         theme = ggplot2::theme_light(),
+                         alpha = 1,
+                         size = 0.5,
+                         stroke = 0.5,
+                         remove_axis = TRUE,
+                         remove_legend = TRUE,
+                         remove_grid_line = TRUE,
+                         add_zero_line = TRUE) {
+    data$type <- "true"
+    null_data$type <- "null"
+    data$type <- factor(data$type, levels = c("true", "null"))
+    null_data$type <- factor(null_data$type, levels = c("true", "null"))
+
+    self$plot_resid(rbind(data, null_data),
+                    theme,
+                    alpha,
+                    size,
+                    stroke,
+                    remove_axis,
+                    remove_legend,
+                    remove_grid_line,
+                    add_zero_line) +
+      ggplot2::facet_wrap(~type)
+  }
+
+
+# plot_lineup -------------------------------------------------------------
+
+  plot_lineup_ <- function(lineup_size = 20L,
+                           data = self$get_fitted_and_resid(),
+                           null_method = self$null_method,
+                           theme = ggplot2::theme_light(),
+                           alpha = 1,
+                           size = 0.5,
+                           stroke = 0.5,
+                           remove_axis = TRUE,
+                           remove_legend = TRUE,
+                           remove_grid_line = TRUE,
+                           add_zero_line = TRUE,
+                           remove_facet_label = FALSE,
+                           display_answer = TRUE) {
+
+    if (lineup_size < 1) stop("Lineup size must be greater than one!")
+
+    true_pos <- sample(1:lineup_size, 1)
+    data$pos <- true_pos
+    for (i in 1:lineup_size) {
+      if (i == true_pos) next
+      null_data <- null_method(self$fitted_model)
+      null_data$pos <- i
+      data <- rbind(data, null_data)
+    }
+
+    p <- self$plot_resid(data,
+                         theme,
+                         alpha,
+                         size,
+                         stroke,
+                         remove_axis,
+                         remove_legend,
+                         remove_grid_line,
+                         add_zero_line) +
+      ggplot2::facet_wrap(~pos)
+
+    if (remove_facet_label) {
+      p <- p + ggplot2::theme(strip.text = ggplot2::element_blank())
+    }
+
+    if (display_answer) {
+      p <- p + ggplot2::ggtitle(paste0("The true residual plot is at position ", true_pos, "."))
+    }
+
+    return(p)
+  }
+
+# save_plot ---------------------------------------------------------------
+
+  save_plot_ <- function(p, path = NULL) {
+    autovi::save_plot(p, path = path)
+  }
+
 # vss ---------------------------------------------------------------------
 
   vss_ <- function(x = self$plot_resid(),
@@ -166,7 +253,7 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
 
     # A single ggplot
     if (ggplot2::is.ggplot(x)) {
-      path <- autovi::save_plot(x)
+      path <- self$save_plot(x)
       x <- keras_wrapper$image_to_array(path)
       autovi::remove_plot(path)
       return(keras_wrapper$predict(x,
@@ -179,7 +266,7 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
     # A list of ggplot
     if (is.list(x)) {
       if (all(unlist(lapply(x, ggplot2::is.ggplot)))) {
-        path <- autovi::save_plot(x)
+        path <- self$save_plot(x)
         x <- keras_wrapper$image_to_array(path)
         autovi::remove_plot(path)
         return(keras_wrapper$predict(x,
@@ -193,8 +280,8 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
     # A data.frame
     if (is.data.frame(x)) {
       p <- self$plot_resid(x)
-      path <- autovi::save_plot(p)
-      x <- keras_wrapper$image_to_array(x, keras_model = keras_model)
+      path <- self$save_plot(p)
+      x <- keras_wrapper$image_to_array(path)
       autovi::remove_plot(path)
       return(keras_wrapper$predict(x,
                                    auxiliary = auxiliary,
@@ -256,6 +343,21 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
     return(self$rotate_resid(fitted_model))
   }
 
+
+# boot_method -------------------------------------------------------------
+
+  boot_method_ <- function(fitted_model = self$fitted_model,
+                           data = self$get_data()) {
+
+    # Sampling row ids with replacement.
+    new_row_id <- sample(1:nrow(data), replace = TRUE)
+
+    # Refit the model.
+    new_mod <- stats::update(fitted_model, data = data[new_row_id, ])
+
+    return(tibble::tibble(.fitted = new_mod$fitted.values,
+                          .resid = new_mod$residuals))
+  }
 
 # rotate_resid ------------------------------------------------------------
 
@@ -354,14 +456,8 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
     # Bootstrap and refit regression models.
     dat_list <- lapply(1:draws, function(i) {
 
-      # Sampling row ids with replacement.
-      new_row_id <- sample(1:nrow(data), replace = TRUE)
-
-      # Refit the model.
-      new_mod <- stats::update(fitted_model, data = data[new_row_id, ])
-
-      tibble::tibble(.fitted = new_mod$fitted.values,
-                     .resid = new_mod$residuals)
+      self$boot_method(fitted_model = fitted_model,
+                       data = data)
     })
 
 
@@ -414,7 +510,6 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
                      fitted_model = self$fitted_model,
                      keras_model = self$keras_model,
                      null_method = self$null_method,
-                     p_value_type = "quantile",
                      data = self$get_data(),
                      node_index = self$node_index,
                      keep_data = FALSE,
@@ -467,9 +562,9 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
 
     # Compute the p-values.
     if (null_draws > 0)
-      self$check_result$p_value <- self$p_value(observed$vss, type = p_value_type)
+      self$check_result$p_value <- self$p_value(observed$vss)
     if (null_draws > 0 && boot_draws > 0)
-      self$check_result$boot_p_value <- self$p_value(mean(boot_dist$vss), type = p_value_type)
+      self$check_result$boot_p_value <- self$p_value(mean(boot_dist$vss))
 
     # Compute the likelihoods and ratio.
     if (null_draws > 0 && boot_draws > 0) {
@@ -485,7 +580,7 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
 
     self$check_result$lineup_check <- FALSE
 
-    return(invisible(self))
+    return(self)
   }
 
 
@@ -505,7 +600,6 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
                fitted_model = fitted_model,
                keras_model = keras_model,
                null_method = null_method,
-               p_value_type = "lineup",
                data = data,
                node_index = node_index,
                keep_data = TRUE,
@@ -514,7 +608,7 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
 
     self$check_result$lineup_check <- TRUE
 
-    return(invisible(self))
+    return(self)
   }
 
 
@@ -550,31 +644,12 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
 # p_value -----------------------------------------------------------------
 
   p_value_ <- function(vss = self$check_result$observed$vss,
-                       null_dist = self$check_result$null$vss,
-                       type = "auto") {
+                       null_dist = self$check_result$null$vss) {
 
     if (is.null(vss)) stop("Missing observed visual signal strength!")
     if (is.null(null_dist)) stop("Missing results for null distribution!")
 
-    if (type == "auto") {
-      if (!is.null(self$check_result$lineup_check) && self$check_result$lineup_check) {
-        total <- length(null_dist) + 1
-        return(1/total + sum(null_dist > vss)/total)
-      } else {
-        return(mean(null_dist >= vss))
-      }
-    }
-
-    if (type == "quantile") {
-      return(mean(null_dist >= vss))
-    }
-
-    if (type == "lineup") {
-      total <- length(null_dist) + 1
-      return(1/total + sum(null_dist > vss)/total)
-    }
-
-    stop("Argument `type` is neither 'quantile' nor 'lineup'!")
+    return(mean(c(null_dist, vss) >= vss))
   }
 
 
@@ -679,27 +754,31 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
     stop("Argument `type` is neither 'density' nor 'rank'!")
   }
 
-
-# select_feature ----------------------------------------------------------
-
-
-  select_feature_ <- function(data = self$check_result$observed, pattern = "f_") {
-    if (!is.data.frame(data)) {
-      return(data.frame())
-    }
-    result <- data[, grep(pattern, names(data))]
-    if (ncol(result) == 0) warning("No features found in the provided data frame. Did you forget to specify a layer name or layer index for `extract_feature_from_layer` when estimating the visual signal strength or conducting the check?")
-    return(result)
-  }
-
-
 # feature_pca -------------------------------------------------------------
 
-  feature_pca_ <- function(feature = self$select_feature(self$check_result$observed),
-                           null_feature = self$select_feature(self$check_result$null),
-                           boot_feature = self$select_feature(self$check_result$boot),
+  feature_pca_ <- function(feature = self$check_result$observed,
+                           null_feature = self$check_result$null,
+                           boot_feature = self$check_result$boot,
                            center = TRUE,
-                           scale = TRUE) {
+                           scale = TRUE,
+                           pattern = "^f_.*$") {
+
+    select_feature <- function(data, pattern) {
+      if (!is.data.frame(data)) {
+        return(data.frame())
+      }
+      result <- data[, grep(pattern, names(data))]
+      if (ncol(result) == 0) {
+        warning(paste0("No matching features found in the provided data frame.",
+                       " Did you forget to specify a layer name",
+                       " or layer index for `extract_feature_from_layer`",
+                       " when estimating the visual signal strength or conducting the check?"))}
+      return(result)
+    }
+
+    feature <- select_feature(feature, pattern)
+    null_feature <- select_feature(null_feature, pattern)
+    boot_feature <- select_feature(boot_feature, pattern)
 
     all_feature <- data.frame()
     tags <- c()
@@ -756,14 +835,61 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
     set <- NULL
 
     if (col_by_set) {
+
       p <- ggplot2::ggplot(feature_pca) +
-        ggplot2::geom_point(ggplot2::aes({{x}}, {{y}}, col = set))
+        ggplot2::geom_point(data = ~.x[.x$set == "null", ], ggplot2::aes({{x}}, {{y}}, col = "null")) +
+        ggplot2::geom_point(data = ~.x[.x$set == "boot", ], ggplot2::aes({{x}}, {{y}}, col = "boot")) +
+        ggplot2::geom_point(data = ~.x[.x$set == "observed", ], ggplot2::aes({{x}}, {{y}}, col = "observed"))
+
     } else {
       p <- ggplot2::ggplot(feature_pca) +
         ggplot2::geom_point(ggplot2::aes({{x}}, {{y}}))
     }
 
     return(p)
+  }
+
+
+# summary -----------------------------------------------------------------
+
+  summary_ <- function() {
+
+    # New a summary class
+    AUTO_VI_SUMMARY <- bandicoot::new_class(class_name = "AUTO_VI_SUMMARY")
+
+    # Capture the summary string and store in the summary class
+    AUTO_VI_SUMMARY$summary_string <- gsub("AUTO_VI object",
+                                           "AUTO_VI_SUMMARY object",
+                                           self$..str..())
+
+    # Reuse the summary string as `..str..` output
+    bandicoot::register_method(AUTO_VI_SUMMARY,
+                               ..str.. = function() self$summary_string)
+
+    # Store necessary information users may need in the class
+    AUTO_VI_SUMMARY$observed_vss <- self$check_result$observed$vss
+
+    null_dist <- self$check_result$null$vss
+    if (length(null_dist) > 0) {
+      AUTO_VI_SUMMARY$null_draws <- length(null_dist)
+      AUTO_VI_SUMMARY$null_mean <- mean(null_dist)
+      AUTO_VI_SUMMARY$null_quantiles <- stats::quantile(null_dist, c(0.25, 0.5, 0.75, 0.8, 0.9, 0.95, 0.99))
+    }
+
+    boot_dist <- self$check_result$boot$vss
+    if (length(boot_dist) > 0) {
+      AUTO_VI_SUMMARY$boot_draws <- length(boot_dist)
+      AUTO_VI_SUMMARY$boot_mean <- mean(boot_dist)
+      AUTO_VI_SUMMARY$boot_quantiles <- stats::quantile(boot_dist, c(0.25, 0.5, 0.75, 0.8, 0.9, 0.95, 0.99))
+    }
+
+    AUTO_VI_SUMMARY$p_value <- self$check_result$p_value
+    AUTO_VI_SUMMARY$boot_p_value <- self$check_result$boot_p_value
+    AUTO_VI_SUMMARY$boot_likelihood <- self$check_result$boot_likelihood
+    AUTO_VI_SUMMARY$null_likelihood <- self$check_result$null_likelihood
+    AUTO_VI_SUMMARY$likelihood_ratio <- self$check_result$likelihood_ratio
+
+    return(AUTO_VI_SUMMARY$instantiate())
   }
 
 # str ---------------------------------------------------------------------
@@ -858,7 +984,7 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
 
       # Get the boot p-value.
       boot_p_value <- self$check_result$boot_p_value
-      if (!is.null(boot_p_value)) result <- paste0(result, " (p-value = ", boot_p_value, ")")
+      if (!is.null(boot_p_value)) result <- paste0(result, " (p-value = ", format(boot_p_value, digits = 4), ")")
 
       result <- paste0(result, "\n        - Quantiles: ")
       result <- paste0(result, "\n           \u2554", paste(rep("\u2550", nchar(qts[1])), collapse = ""), "\u2557")
@@ -896,8 +1022,12 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
                              get_data = get_data_,
                              auxiliary = auxiliary_,
                              plot_resid = plot_resid_,
+                             plot_pair = plot_pair_,
+                             plot_lineup = plot_lineup_,
+                             save_plot = save_plot_,
                              vss = vss_,
                              null_method = null_method_,
+                             boot_method = boot_method_,
                              rotate_resid = rotate_resid_,
                              null_vss = null_vss_,
                              boot_vss = boot_vss_,
@@ -905,12 +1035,11 @@ auxiliary_ <- function(data = self$get_fitted_and_resid()) {
                              lineup_check = lineup_check_,
                              likelihood_ratio = likelihood_ratio_,
                              p_value = p_value_,
+                             summary = summary_,
                              summary_density_plot = summary_density_plot_,
                              summary_rank_plot = summary_rank_plot_,
                              summary_plot = summary_plot_,
-                             select_feature = select_feature_,
                              feature_pca = feature_pca_,
                              feature_pca_plot = feature_pca_plot_,
                              ..str.. = str_)
 }
-

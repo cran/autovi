@@ -12,6 +12,8 @@ AUTO_VI <- new.env()
 #' with S3 class `bandicoot_oop`.
 #'
 #' @param fitted_model Model. A model object, e.g. `lm`.
+#' @param keras_model_name Character. A model name to be used by
+#' [get_keras_model()]. See also [list_keras_model()].
 #' @param keras_model Keras model. A trained computer vision model.
 #' @param data Data frame. The data used to fit the model.
 #' @param node_index Integer. An index indicating which node of the output layer
@@ -35,6 +37,7 @@ AUTO_VI <- new.env()
 #' * A:
 #'    * [AUTO_VI$auxiliary()]
 #' * B:
+#'    * [AUTO_VI$boot_method()]
 #'    * [AUTO_VI$boot_vss()]
 #' * C:
 #'    * [AUTO_VI$check()]
@@ -54,12 +57,15 @@ AUTO_VI <- new.env()
 #'    * [AUTO_VI$null_vss()]
 #' * P:
 #'    * [AUTO_VI$p_value()]
+#'    * [AUTO_VI$plot_pair()]
+#'    * [AUTO_VI$plot_lineup()]
 #'    * [AUTO_VI$plot_resid()]
 #' * R:
 #'    * [AUTO_VI$rotate_resid()]
 #' * S:
-#'    * [AUTO_VI$select_feature()]
+#'    * [AUTO_VI$save_plot()]
 #'    * [AUTO_VI$..str..()]
+#'    * [AUTO_VI$summary()]
 #'    * [AUTO_VI$summary_density_plot()]
 #'    * [AUTO_VI$summary_plot()]
 #'    * [AUTO_VI$summary_rank_plot()]
@@ -79,6 +85,23 @@ auto_vi <- function(fitted_model,
                     init_call = sys.call()) {
   AUTO_VI$instantiate(fitted_model = fitted_model,
                       keras_model = keras_model,
+                      data = data,
+                      node_index = node_index,
+                      env = env,
+                      init_call = init_call)
+}
+
+#' @describeIn AUTO_VI Class constructor, same as `AUTO_VI$instantiate()`, but
+#' uses the `keras_model_name` argument rather than `keras_model`.
+#' @export
+residual_checker <- function(fitted_model,
+                             keras_model_name = "vss_phn_32",
+                             data = NULL,
+                             node_index = 1L,
+                             env = new.env(parent = parent.frame()),
+                             init_call = sys.call()) {
+  AUTO_VI$instantiate(fitted_model = fitted_model,
+                      keras_model = get_keras_model(keras_model_name),
                       data = data,
                       node_index = node_index,
                       env = env,
@@ -117,6 +140,35 @@ AUTO_VI$check_result
 #' my_vi <- auto_vi(fitted_model = lm(speed ~ dist, data = cars))
 #' my_vi
 AUTO_VI$..init..
+
+#' Summary of the object
+#'
+#' @name AUTO_VI$summary
+#'
+#' @description The [AUTO_VI$..str..()] method provides a string
+#' representation of the object. If a check is performed, the string
+#' will contain some simple statistics of the check result. This method
+#' does this same thing as [AUTO_VI$..str..()], but it returns an
+#' `AUTO_VI_SUMMARY` object which stores those statistics, such as sample
+#' quantiles of the distribution of null visual signal strength, in the object.
+#'
+#' ## Usage
+#' ```
+#' AUTO_VI$summary()
+#' ```
+#' @return An `AUTO_VI_SUMMARY` object.
+#'
+#' @examples
+#' keras_model <- try(get_keras_model("vss_phn_32"))
+#' if (!inherits(keras_model, "try-error")) {
+#'   myvi <- auto_vi(lm(dist ~ speed, data = cars), keras_model)
+#'
+#'   myvi$check()
+#'   myvi_summary <- myvi$summary()
+#'   print(myvi_summary)
+#'   names(myvi_summary)
+#' }
+AUTO_VI$summary
 
 #' String representation of the object
 #'
@@ -253,6 +305,128 @@ AUTO_VI$auxiliary
 AUTO_VI$plot_resid
 
 
+#' Draw a pair of standard residual plots
+#'
+#' @name AUTO_VI$plot_pair
+#'
+#' @description This function draws a pair of standard residual plots
+#' consisting of a true residual plot and a null residual plot.
+#'
+#' ## Usage
+#' ```
+#' AUTO_VI$plot_pair(
+#'   data = self$get_fitted_and_resid(),
+#'   null_data = self$null_method(),
+#'   theme = ggplot2::theme_light(),
+#'   alpha = 1,
+#'   size = 0.5,
+#'   stroke = 0.5,
+#'   remove_axis = TRUE,
+#'   remove_legend = TRUE,
+#'   remove_grid_line = TRUE,
+#'   add_zero_line = TRUE
+#' )
+#' ```
+#'
+#' @param data Data frame. A data frame containing variables `.resid` and
+#' `.fitted`. See also [AUTO_VI$get_fitted_and_resid()].
+#' @param null_data Data frame. A data frame containing variables `.resid` and
+#' `.fitted`. See also [AUTO_VI$null_method()].
+#' @param theme `ggtheme`. A `ggplot` theme object.
+#' See also [ggplot2::theme_light()].
+#' @param alpha Numeric. Alpha of dot. Value between 0 and 1.
+#' @param size Numeric. Size of dot. Value between 0 and 1.
+#' @param stroke Numeric. Stroke of dot. Value between 0 and 1.
+#' @param remove_axis Boolean. Whether or not to remove the axis.
+#' @param remove_legend Boolean. Whether or not to remove the legend.
+#' @param remove_grid_line Boolean. Whether or not to remove the grid lines.
+#' @param add_zero_line Boolean. Whether or not to add a zero horizontal line.
+#' @return A `ggplot`.
+#'
+#' @examples
+#'
+#' my_vi <- auto_vi(fitted_model = lm(speed ~ dist, data = cars))
+#' my_vi$plot_pair()
+AUTO_VI$plot_pair
+
+#' Draw a lineup of standard residual plots
+#'
+#' @name AUTO_VI$plot_lineup
+#'
+#' @description This function draws a lineup of standard residual plots
+#' consisting of a true residual plot and several null residual plots.
+#'
+#' ## Usage
+#' ```
+#' AUTO_VI$plot_lineup(
+#'   lineup_size = 20L,
+#'   data = self$get_fitted_and_resid(),
+#'   null_method = self$null_method,
+#'   theme = ggplot2::theme_light(),
+#'   alpha = 1,
+#'   size = 0.5,
+#'   stroke = 0.5,
+#'   remove_axis = TRUE,
+#'   remove_legend = TRUE,
+#'   remove_grid_line = TRUE,
+#'   add_zero_line = TRUE,
+#'   remove_facet_label = FALSE,
+#'   display_answer = TRUE
+#' )
+#' ```
+#'
+#' @param lineup_size Numeric. Number of plots in a lineup.
+#' @param data Data frame. A data frame containing variables `.resid` and
+#' `.fitted`. See also [AUTO_VI$get_fitted_and_resid()].
+#' @param null_method Function. A function that takes a fitted model as input,
+#' and outputs a data frame containing variables `.resid` and
+#' `.fitted`. See also [AUTO_VI$null_method()].
+#' @param theme `ggtheme`. A `ggplot` theme object.
+#' See also [ggplot2::theme_light()].
+#' @param alpha Numeric. Alpha of dot. Value between 0 and 1.
+#' @param size Numeric. Size of dot. Value between 0 and 1.
+#' @param stroke Numeric. Stroke of dot. Value between 0 and 1.
+#' @param remove_axis Boolean. Whether or not to remove the axis.
+#' @param remove_legend Boolean. Whether or not to remove the legend.
+#' @param remove_grid_line Boolean. Whether or not to remove the grid lines.
+#' @param add_zero_line Boolean. Whether or not to add a zero horizontal line.
+#' @param remove_facet_label Boolean. Whether or not to remove facet labels.
+#' @param display_answer Boolean. Whether or not to display the answer in title.
+#' @return A `ggplot`.
+#'
+#' @examples
+#'
+#' my_vi <- auto_vi(fitted_model = lm(speed ~ dist, data = cars))
+#' my_vi$plot_lineup()
+AUTO_VI$plot_lineup
+
+#' Save plot(s)
+#'
+#' @name AUTO_VI$save_plot
+#'
+#' @description This is the default method of saving plot(s). It will use
+#' [save_plot()] to save the ggplot to a 420 (width) * 525 (height) PNG
+#' file. If the trained images are generated differently, one can override
+#' this method using [bandicoot::register_method()].
+#'
+#' ## Usage
+#' ```
+#' AUTO_VI$save_plot(p, path = NULL)
+#' ```
+#'
+#' @param p ggplot. A plot or a list of plots.
+#' @param path Character. Character. Path(s) to save the image.
+#'
+#' @return The image path.
+#'
+#' @examples
+#'
+#' my_vi <- auto_vi(fitted_model = lm(speed ~ dist, data = cars))
+#' p <- my_vi$plot_resid()
+#' my_vi$save_plot(p)
+AUTO_VI$save_plot
+
+
 #' Predict the visual signal strength
 #'
 #' @name AUTO_VI$vss
@@ -351,7 +525,6 @@ AUTO_VI$null_method
 #' my_vi$plot_resid(rotated_resid)
 AUTO_VI$rotate_resid
 
-
 #' Simulate null plots and predict the visual signal strength
 #'
 #' @name AUTO_VI$null_vss
@@ -396,12 +569,41 @@ AUTO_VI$rotate_resid
 #' }
 AUTO_VI$null_vss
 
+#' Get bootstrapped residuals from a fitted model
+#'
+#' @name AUTO_VI$boot_method
+#'
+#' @description This default method gets bootstrapped residuals from a
+#' fitted linear model by sampling the observations with replacement
+#' then refit the model. User needs to override this method if
+#' a different bootstrapping scheme is needed.
+#'
+#' ## Usage
+#' ```
+#' AUTO_VI$boot_method(
+#'   fitted_model = self$fitted_model,
+#'   data = self$get_data()
+#' )
+#' ```
+#'
+#' @param fitted_model `lm`. A linear model object.
+#' @param data Data frame. The data used to fit the model.
+#' See also [AUTO_VI$get_data()].
+#' @return A tibble with two columns `.fitted` and `.resid`.
+#' @examples
+#'
+#' my_vi <- auto_vi(fitted_model = lm(speed ~ dist, data = cars))
+#' null_resid <- my_vi$boot_method()
+#' my_vi$plot_resid(null_resid)
+AUTO_VI$boot_method
+
 #' Predict visual signal strength for bootstrapped residual plots
 #'
 #' @name AUTO_VI$boot_vss
 #'
-#' @description This function bootstrap the data and refits the model, then
-#' predicts the visual signal strength of the bootstrapped residual plots.
+#' @description This function bootstrap the data and refits the model by using
+#' [AUTO_VI$boot_method()], then predicts the visual signal strength
+#' of the bootstrapped residual plots.
 #'
 #' ## Usage
 #' ```
@@ -455,7 +657,6 @@ AUTO_VI$boot_vss
 #'   fitted_model = self$fitted_model,
 #'   keras_model = self$keras_model,
 #'   null_method = self$null_method,
-#'   p_value_type = "quantile",
 #'   data = self$get_data(),
 #'   node_index = self$node_index,
 #'   keep_data = FALSE,
@@ -473,8 +674,6 @@ AUTO_VI$boot_vss
 #' @param null_method Function. A method to simulate residuals from the null
 #' hypothesis distribution. For `lm`, the recommended method is residual
 #' rotation [AUTO_VI$rotate_resid()].
-#' @param p_value_type Character. Either "quantile" or "lineup". See
-#' also [AUTO_VI$p_value()].
 #' @param data Data frame. The data used to fit the model.
 #' See also [AUTO_VI$get_data()].
 #' @param node_index Integer. An index indicating which node of the output layer
@@ -587,23 +786,14 @@ AUTO_VI$likelihood_ratio
 #' ```
 #' AUTO_VI$p_value(
 #'   vss = self$check_result$observed$vss,
-#'   null_dist = self$check_result$null$vss,
-#'   type = "auto"
+#'   null_dist = self$check_result$null$vss
 #' )
 #' ```
 #'
-#' @details There are two types of p-value calculation. Option "quantile"
-#' calculates the percentage of null visual signal strength greater than or
-#' equal to the observed visual signal strength. Option "lineup" combines
-#' the null visual signal strength and the observed visual signal strength
-#' in one vector, and calculates the percentage of entries in this vector
-#' greater than or equal to the observed visual signal strength. The "lineup"
-#' option ensures the p-value will not be smaller than 1 over the size of the
-#' lineup.
-#'
-#' @param type Character. Either  "auto", "quantile" or "lineup". Option
-#' "auto" will use the Boolean flag `self$check_result$lineup_check`
-#' to determine the correct option.
+#' @param vss Numrice. A single numeric value indicating the visual signal
+#' strength for the true residual plot.
+#' @param null_dist Numeric. A vector of numeric values indicating the visual
+#' signal strength for null residual plots.
 #' @return A numeric value representing the desired p-value.
 #' @examples
 #' vss <- 1
@@ -719,18 +909,21 @@ AUTO_VI$summary_rank_plot
 #' ## Usage
 #' ```
 #' AUTO_VI$feature_pca(
-#'   feature = self$select_feature(self$check_result$observed),
-#'   null_feature = self$select_feature(self$check_result$null),
-#'   boot_feature = self$select_feature(self$check_result$boot),
+#'   feature = self$check_result$observed,
+#'   null_feature = self$check_result$null,
+#'   boot_feature = self$check_result$boot,
 #'   center = TRUE,
-#'   scale = TRUE
+#'   scale = TRUE,
+#'   pattern = "^f_.*$"
 #' )
 #' ```
 #'
 #' @details Features need to be extracted while running the method
 #' [AUTO_VI$check()] and [AUTO_VI$lineup_check()] by providing the argument
 #' `extract_feature_from_layer`. Features with zero variance will be ignored
-#' from the analysis. See also [stats::prcomp()].
+#' from the analysis. See also [stats::prcomp()]. By default, features are
+#' assumed to follow the naming convention
+#' "f_(index)", where index is from one to the number of features.
 #'
 #'
 #' @param feature Dataframe. A data frame where columns represent
@@ -744,6 +937,8 @@ AUTO_VI$summary_rank_plot
 #' @param center Boolean. Whether to subtract the mean from the feature.
 #' @param scale Boolean. Whether to divide the feature by its standard
 #' deviation.
+#' @param pattern Character. A regrex pattern to search for features in the
+#' provided DataFrame. See also [grep()].
 #' @return A tibble of the raw features and the rotated features with
 #' attributes `sdev` and `rotation` representing the
 #' standard deviation of the principal
@@ -758,37 +953,6 @@ AUTO_VI$summary_rank_plot
 #' }
 #'
 AUTO_VI$feature_pca
-
-#' Select features from the check result
-#'
-#' @name AUTO_VI$select_feature
-#'
-#' @description This function select features from the check result.
-#'
-#' ## Usage
-#' ```
-#' AUTO_VI$feature_pca(data = self$check_result$observed, pattern = "f_")
-#' ```
-#'
-#' @details By default, features are assumed to follow the naming convention
-#' "f_(index)", where index is from one to the number of features.
-#'
-#' @param data Dataframe. A data frame where some columns represent
-#' features and rows represent observations.
-#' @param pattern Character. A regrex pattern to search for features.
-#' See also [grep()].
-#' @return A tibble where columns represent
-#' features and rows represent observations.
-#' @examples
-#' keras_model <- try(get_keras_model("vss_phn_32"))
-#' if (!inherits(keras_model, "try-error")) {
-#'   myvi <- auto_vi(lm(dist ~ speed, data = cars), keras_model)
-#'
-#'   myvi$lineup_check(extract_feature_from_layer = "global_max_pooling2d")
-#'   myvi$select_feature()
-#' }
-#'
-AUTO_VI$select_feature
 
 #' Draw a summary Plot for principal component analysis conducted on extracted features
 #'
